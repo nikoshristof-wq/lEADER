@@ -1,19 +1,19 @@
 const express = require("express");
 const { Client, GatewayIntentBits } = require("discord.js");
 
-// Web server για UptimeRobot / Render
+// 🌐 Web server (για Railway / uptime)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.send("Discord bot is alive.");
+  res.send("Bot is alive");
 });
 
 app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
 
-// Discord bot config
+// 🔑 CONFIG
 const TOKEN = process.env.DISCORD_TOKEN;
 
 const ADMIN_ROLE_ID = "1497273062788436139";
@@ -24,6 +24,7 @@ const BYPASS_ROLE_IDS = [
 const CIVILIAN_ROLE_ID = "1361747874731266169";
 const CHANNEL_ID = "1382350689568821249";
 
+// 🤖 Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -32,18 +33,21 @@ const client = new Client({
   ]
 });
 
+// 🔍 Helper
 function hasAnyRole(member, roleIds) {
-  return roleIds.some(roleId => member.roles.cache.has(roleId));
+  return roleIds.some(id => member.roles.cache.has(id));
 }
 
+// 🔊 Core Logic
 async function updateVoiceMuteState(guild) {
   const channel = guild.channels.cache.get(CHANNEL_ID);
-  if (!channel || !channel.members) return;
+  if (!channel) return;
 
   const members = [...channel.members.values()];
 
-  const hasAdminInside = members.some(member =>
-    member.roles.cache.has(ADMIN_ROLE_ID)
+  // Υπάρχει admin μέσα;
+  const hasAdminInside = members.some(m =>
+    m.roles.cache.has(ADMIN_ROLE_ID)
   );
 
   for (const member of members) {
@@ -60,21 +64,22 @@ async function updateVoiceMuteState(guild) {
       !hasAdminInside;
 
     try {
-      if (member.voice.mute !== shouldMute) {
+      if (member.voice.serverMute !== shouldMute) {
         await member.voice.setMute(
           shouldMute,
           shouldMute
-            ? "Auto mute: no admin inside voice channel"
-            : "Auto unmute: admin inside voice channel or bypass/admin role"
+            ? "Auto mute: no admin in channel"
+            : "Auto unmute: admin present or bypass/admin role"
         );
       }
     } catch (err) {
-      console.error(`Failed to update ${member.user.tag}:`, err.message);
+      console.error(`Error with ${member.user.tag}:`, err.message);
     }
   }
 }
 
-client.once("ready", async () => {
+// ✅ Ready
+client.once("clientReady", async () => {
   console.log(`Bot online as ${client.user.tag}`);
 
   for (const guild of client.guilds.cache.values()) {
@@ -82,6 +87,7 @@ client.once("ready", async () => {
   }
 });
 
+// 🔄 Όταν κάποιος μπαίνει/βγαίνει
 client.on("voiceStateUpdate", async (oldState, newState) => {
   const guild = newState.guild || oldState.guild;
 
@@ -93,4 +99,5 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 });
 
+// 🚀 Start
 client.login(TOKEN);
