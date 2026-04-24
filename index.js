@@ -1,7 +1,7 @@
 const express = require("express");
 const { Client, GatewayIntentBits } = require("discord.js");
 
-// 🌐 Web server (για Railway / uptime)
+// Web server για Railway / UptimeRobot
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,7 +13,7 @@ app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
 
-// 🔑 CONFIG
+// CONFIG
 const TOKEN = process.env.DISCORD_TOKEN;
 
 const ADMIN_ROLE_ID = "1497273062788436139";
@@ -24,7 +24,9 @@ const BYPASS_ROLE_IDS = [
 const CIVILIAN_ROLE_ID = "1361747874731266169";
 const CHANNEL_ID = "1382350689568821249";
 
-// 🤖 Discord Client
+// Κρατάει όσους έγιναν manual server mute
+const manualMutedUsers = new Set();
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -33,21 +35,20 @@ const client = new Client({
   ]
 });
 
-// 🔍 Helper
 function hasAnyRole(member, roleIds) {
   return roleIds.some(id => member.roles.cache.has(id));
 }
 
-// 🔊 Core Logic
 async function updateVoiceMuteState(guild) {
   const channel = guild.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
 
   const members = [...channel.members.values()];
 
-  // Υπάρχει admin μέσα;
-  const hasAdminInside = members.some(m =>
-    m.roles.cache.has(ADMIN_ROLE_ID)
+  // Admin ή Bypass μέσα = ξεκλειδώνει το voice
+  const hasAccessInside = members.some(member =>
+    member.roles.cache.has(ADMIN_ROLE_ID) ||
+    hasAnyRole(member, BYPASS_ROLE_IDS)
   );
 
   for (const member of members) {
@@ -58,18 +59,21 @@ async function updateVoiceMuteState(guild) {
     const isCivilian = member.roles.cache.has(CIVILIAN_ROLE_ID);
 
     const shouldMute =
-      isCivilian &&
-      !isAdmin &&
-      !isBypass &&
-      !hasAdminInside;
+      manualMutedUsers.has(member.id) ||
+      (
+        isCivilian &&
+        !isAdmin &&
+        !isBypass &&
+        !hasAccessInside
+      );
 
     try {
       if (member.voice.serverMute !== shouldMute) {
         await member.voice.setMute(
           shouldMute,
           shouldMute
-            ? "Auto mute: no admin in channel"
-            : "Auto unmute: admin present or bypass/admin role"
+            ? "Auto/manual mute active"
+            : "Auto unmute: admin/bypass present"
         );
       }
     } catch (err) {
@@ -78,7 +82,6 @@ async function updateVoiceMuteState(guild) {
   }
 }
 
-// ✅ Ready
 client.once("clientReady", async () => {
   console.log(`Bot online as ${client.user.tag}`);
 
@@ -87,9 +90,24 @@ client.once("clientReady", async () => {
   }
 });
 
-// 🔄 Όταν κάποιος μπαίνει/βγαίνει
 client.on("voiceStateUpdate", async (oldState, newState) => {
   const guild = newState.guild || oldState.guild;
+  const member = newState.member || oldState.member;
+
+  // Αν κάποιος έγινε server mute/unmute ενώ είναι ήδη μέσα στο συγκεκριμένο voice
+  if (
+    oldState.channelId === CHANNEL_ID &&
+    newState.channelId === CHANNEL_ID &&
+    oldState.serverMute !== newState.serverMute
+  ) {
+    if (newState.serverMute) {
+      manualMutedUsers.add(member.id);
+      console.log(`Manual mute saved: ${member.user.tag}`);
+    } else {
+      manualMutedUsers.delete(member.id);
+      console.log(`Manual mute removed: ${member.user.tag}`);
+    }
+  }
 
   if (
     oldState.channelId === CHANNEL_ID ||
@@ -99,5 +117,12 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
   }
 });
 
-// 🚀 Start
+process.on("unhandledRejection", error => {
+  console.error("Unhandled promise rejection:", error);
+});
+
+process.on("uncaughtException", error => {
+  console.error("Uncaught exception:", error);
+});
+
 client.login(TOKEN);
