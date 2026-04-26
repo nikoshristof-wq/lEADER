@@ -1,7 +1,7 @@
 const express = require("express");
 const { Client, GatewayIntentBits } = require("discord.js");
 
-// 🌐 Web server
+// Web server για Railway / UptimeRobot
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,7 +13,7 @@ app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
 
-// 🔑 CONFIG
+// CONFIG
 const TOKEN = process.env.DISCORD_TOKEN;
 
 const ADMIN_ROLE_ID = "1497273062788436139";
@@ -24,7 +24,7 @@ const BYPASS_ROLE_IDS = [
 const CIVILIAN_ROLE_ID = "1361747874731266169";
 const CHANNEL_ID = "1382350689568821249";
 
-// 🔒 Ποιον έκανε mute το bot
+// Θυμάται μόνο όσους έκανε mute το bot
 const botMutedUsers = new Set();
 
 const client = new Client({
@@ -35,21 +35,19 @@ const client = new Client({
   ]
 });
 
-// 🔍 Helper
 function hasAnyRole(member, roleIds) {
-  return roleIds.some(id => member.roles.cache.has(id));
+  return roleIds.some(roleId => member.roles.cache.has(roleId));
 }
 
-// 🔊 Core Logic
 async function updateVoice(guild) {
   const channel = guild.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
 
   const members = [...channel.members.values()];
 
-  // ΜΟΝΟ admin ξεκλειδώνει
-  const hasAdmin = members.some(m =>
-    m.roles.cache.has(ADMIN_ROLE_ID)
+  // ΜΟΝΟ admin ξεκλειδώνει το voice
+  const hasAdmin = members.some(member =>
+    member.roles.cache.has(ADMIN_ROLE_ID)
   );
 
   for (const member of members) {
@@ -67,30 +65,31 @@ async function updateVoice(guild) {
         !isBypass &&
         !hasAdmin;
 
-      // 🔴 AUTO MUTE
+      // Auto mute όταν δεν υπάρχει admin
       if (shouldAutoMute) {
         if (!member.voice.serverMute) {
-          await member.voice.setMute(true, "Auto mute");
+          await member.voice.setMute(true, "Auto mute: no admin inside");
         }
+
         botMutedUsers.add(member.id);
         continue;
       }
 
-      // 🟢 AUTO UNMUTE (ΜΟΝΟ αν το bot τον είχε κάνει mute)
+      // Auto unmute ΜΟΝΟ αν το bot τον είχε κάνει mute
       if (botMutedUsers.has(member.id)) {
         if (member.voice.serverMute) {
-          await member.voice.setMute(false, "Auto unmute");
+          await member.voice.setMute(false, "Auto unmute: admin inside");
         }
+
         botMutedUsers.delete(member.id);
       }
 
     } catch (err) {
-      console.error("Member error:", err);
+      console.error(`Member error ${member?.user?.tag || "unknown"}:`, err.message);
     }
   }
 }
 
-// 🚀 READY
 client.once("clientReady", async () => {
   console.log(`Bot online as ${client.user.tag}`);
 
@@ -99,20 +98,52 @@ client.once("clientReady", async () => {
   }
 });
 
-// 🔄 EVENTS
 client.on("voiceStateUpdate", async (oldState, newState) => {
-  const guild = newState.guild || oldState.guild;
+  try {
+    const guild = newState.guild || oldState.guild;
 
-  if (
-    oldState.channelId === CHANNEL_ID ||
-    newState.channelId === CHANNEL_ID
-  ) {
-    await updateVoice(guild);
+    const joinedTarget =
+      oldState.channelId !== CHANNEL_ID &&
+      newState.channelId === CHANNEL_ID;
+
+    const leftTarget =
+      oldState.channelId === CHANNEL_ID &&
+      newState.channelId !== CHANNEL_ID;
+
+    const affectedTarget =
+      oldState.channelId === CHANNEL_ID ||
+      newState.channelId === CHANNEL_ID;
+
+    // Όταν βγει κάποιος, καθαρίζουμε τη μνήμη του bot για αυτόν
+    if (leftTarget && oldState.member) {
+      botMutedUsers.delete(oldState.member.id);
+    }
+
+    // Αν μπήκε/βγήκε/άλλαξε voice state στο target channel
+    if (joinedTarget || leftTarget || affectedTarget) {
+      await updateVoice(guild);
+    }
+
+  } catch (err) {
+    console.error("voiceStateUpdate error:", err.message);
   }
 });
 
-// 🛑 ERRORS
-process.on("unhandledRejection", e => console.error(e));
-process.on("uncaughtException", e => console.error(e));
+client.on("error", err => {
+  console.error("Discord client error:", err);
+});
+
+process.on("unhandledRejection", err => {
+  console.error("Unhandled rejection:", err);
+});
+
+process.on("uncaughtException", err => {
+  console.error("Uncaught exception:", err);
+});
+
+if (!TOKEN) {
+  console.error("DISCORD_TOKEN is missing");
+  process.exit(1);
+}
 
 client.login(TOKEN);
